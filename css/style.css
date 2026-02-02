@@ -1,0 +1,113 @@
+:root {
+    --bg-color: #0d0d12;
+    --ui-text: #e0e0e0;
+    --accent-color: #ff5722;
+    --dim-color: #4a2c20;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-color);
+    color: var(--ui-text);
+    font-family: 'Courier New', Courier, monospace;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 20px;
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+}
+
+h1 {
+    margin: 0;
+    font-size: 24px;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    color: var(--accent-color);
+    text-shadow: 0 0 10px rgba(255, 87, 34, 0.5);
+}
+
+p {
+    font-size: 14px;
+    color: #888;
+    margin-top: 5px;
+}
+
+#game-container {
+    position: relative;
+    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+    border: 2px solid #333;
+    border-radius: 8px;
+    background: #080808;
+    /* Texture pattern */
+    background-image: radial-gradient(#1a1a1a 15%, transparent 16%), radial-gradient(#1a1a1a 15%, transparent 16%);
+    background-size: 20px 20px;
+    background-position: 0 0, 10px 10px;
+}
+
+canvas {
+    display: block;
+    border-radius: 6px;
+    cursor: pointer;
+    touch-action: none; /* Prevent scroll on mobile */
+}
+
+#overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+}
+
+#overlay.visible {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.btn {
+    background: transparent;
+    border: 2px solid var(--accent-color);
+    color: var(--accent-color);
+    padding: 15px 40px;
+    font-size: 18px;
+    font-family: inherit;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-top: 20px;
+    box-shadow: 0 0 15px rgba(255, 87, 34, 0.2);
+}
+
+.btn:hover {
+    background: var(--accent-color);
+    color: #fff;
+    box-shadow: 0 0 30px rgba(255, 87, 34, 0.6);
+}
+
+#status-msg {
+    font-size: 32px;
+    margin-bottom: 20px;
+    color: #fff;
+}
