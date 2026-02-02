@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Circuit: Pipe Puzzle</title>
+    <style>
+        :root {
+            --bg-color: #0d0d12;
+            --ui-text: #e0e0e0;
+            --accent-color: #ff5722;
+            --dim-color: #4a2c20;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--ui-text);
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            color: var(--accent-color);
+            text-shadow: 0 0 10px rgba(255, 87, 34, 0.5);
+        }
+
+        p {
+            font-size: 14px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            border: 2px solid #333;
+            border-radius: 8px;
+            background: #080808;
+            /* Texture pattern */
+            background-image: radial-gradient(#1a1a1a 15%, transparent 16%), radial-gradient(#1a1a1a 15%, transparent 16%);
+            background-size: 20px 20px;
+            background-position: 0 0, 10px 10px;
+        }
+
+        canvas {
+            display: block;
+            border-radius: 6px;
+            cursor: pointer;
+            touch-action: none; /* Prevent scroll on mobile */
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+
+        #overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .btn {
+            background: transparent;
+            border: 2px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 15px 40px;
+            font-size: 18px;
+            font-family: inherit;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+            box-shadow: 0 0 15px rgba(255, 87, 34, 0.2);
+        }
+
+        .btn:hover {
+            background: var(--accent-color);
+            color: #fff;
+            box-shadow: 0 0 30px rgba(255, 87, 34, 0.6);
+        }
+
+        #status-msg {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #fff;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h1>Neural Circuit</h1>
+        <p>Connect the Input to the Output</p>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="overlay">
+            <div id="status-msg">CIRCUIT COMPLETE</div>
+            <button class="btn" id="restartBtn">Initialize New Sequence</button>
+        </div>
+    </div>
+
+<script>
+/**
+ * CONSTANTS & CONFIG
+ */
+const CONFIG = {
+    cols: 8,
+    rows: 6,
+    tileSize: 80, // Base size, scales dynamically
+    bgColor: '#080808',
+    pipeInactive: '#4a2c20', // Dim copper
+    pipeActive: '#ff5722',   // Glowing orange
+    lineWidth: 12,
+    animSpeed: 0.2 // Speed of rotation lerp (0.0 to 1.0)
+};
+
+// Pipe Directions: North=1, East=2, South=4, West=8
+const DIRS = {
+    N: 1,
+    E: 2,
+    S: 4,
+    W: 8
+};
+
+// Pipe Types Definition
+// maps type ID to its connections at rotation 0
+const PIPE_TYPES = {
+    STRAIGHT: DIRS.N | DIRS.S,    // 5
+    ELBOW:    DIRS.N | DIRS.E,    // 3
+    TEE:      DIRS.N | DIRS.E | DIRS.S, // 7
+    CROSS:    DIRS.N | DIRS.E | DIRS.S | DIRS.W, // 15
+    EMPTY:    0
+};
+
+/**
+ * UTILITIES
+ */
+function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function getOppositeDir(dir) {
+    if (dir === DIRS.N) return DIRS.S;
+    if (dir === DIRS.S) return DIRS.N;
+    if (dir === DIRS.E) return DIRS.W;
+    if (dir === DIRS.W) return DIRS.E;
+    return 0;
+}
+
+/**
+ * CLASS: TILE
+ * Represents a single grid square
+ */
+class Tile {
+    constructor(c, r, type) {
+        this.c = c;
+        this.r = r;
+        this.type = type; // Initial connections mask (Rotation 0)
+        this.rotation = 0; // 0, 1, 2, 3 (x90 degrees)
+        this.targetRotation = 0;
+        this.visualRotation = 0; // For animation
+        this.isLit = false;
+        this.locked = false; // If true, cannot rotate (optional, used for decoys or fixed starts)
+    }
+
+    // Get the connections for the CURRENT rotation
+    getConnections() {
+        let connections = 0;
+        // Standard bitwise rotation logic
+        // N(1) -> E(2) -> S(4) -> W(8) -> N(1)
+        
+        // Check North bit of base type
+        if (this.type & DIRS.N) connections |= (DIRS.N << this.rotation);
+        if (this.type & DIRS.E) connections |= (DIRS.E << this.rotation);
+        if (this.type & DIRS.S) connections |= (DIRS.S << this.rotation);
+        if (this.type & DIRS.W) connections |= (DIRS.W << this.rotation);
+
+        // Clean up overflow (anything > 8 needs to wrap around)
+        // Actually, cleaner logic:
+        let result = 0;
+        if (this.hasDir(DIRS.N)) result |= this.rotateDir(DIRS.N);
+        if (this.hasDir(DIRS.E)) result |= this.rotateDir(DIRS.E);
+        if (this.hasDir(DIRS.S)) result |= this.rotateDir(DIRS.S);
+        if (this.hasDir(DIRS.W)) result |= this.rotateDir(DIRS.W);
+        
+        return result;
+    }
+
+    // Helper: Does the base type have this direction?
+    hasDir(dir) {
+        return (this.type & dir) !== 0;
+    }
+
+    // Helper: Rotate a single direction bit based on current rotation
+    rotateDir(dir) {
+        let shifts = this.rotation % 4;
+        for(let i=0; i<shifts; i++) {
+            if(dir === DIRS.N) dir = DIRS.E;
+            else if(dir === DIRS.E) dir = DIRS.S;
+            else if(dir === DIRS.S) dir = DIRS.W;
+            else if(dir === DIRS.W) dir = DIRS.N;
+        }
+        return dir;
+    }
+
+    rotate() {
+        if (this.locked) return;
+        this.targetRotation += 1;
+        this.rotation = this.targetRotation % 4;
+    }
+
+    update() {
+        // Smooth interpolation for rotation
+        const diff = (this.targetRotation * (Math.PI/2)) - this.visualRotation;
+        if (Math.abs(diff) > 0.01) {
+            this.visualRotation += diff * CONFIG.animSpeed;
+        } else {
+            this.visualRotation = this.targetRotation * (Math.PI/2);
+        }
+    }
+
+    draw(ctx, size) {
+        const cx = this.c * size + size/2;
+        const cy = this.r * size + size/2;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        
+        // Draw Grid Background for Tile
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-size/2, -size/2, size, size);
+
+        // Apply Rotation
+        ctx.rotate(this.visualRotation);
+
+        // Style
+        ctx.lineCap = 'round';
+        ctx.lineWidth = size * 0.2; // Responsive line width
+        
+        // Shadow/Glow
+        if (this.isLit) {
+            ctx.strokeStyle = CONFIG.pipeActive;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = CONFIG.pipeActive;
+        } else {
+            ctx.strokeStyle = CONFIG.pipeInactive;
+            ctx.shadowBlur = 0;
+        }
+
+        // Draw Pipe Shape based on BASE TYPE (since we rotated the canvas)
+        ctx.beginPath();
+        
+        // Center point
+        // If it's not a straight line, we usually draw from center to edge.
+        // Even straight lines look better drawn as two segments meeting in middle for consistency.
+        
+        if (this.type & DIRS.N) { ctx.moveTo(0, 0); ctx.lineTo(0, -size * 0.4); }
+        if (this.type & DIRS.E) { ctx.moveTo(0, 0); ctx.lineTo(size * 0.4, 0); }
+        if (this.type & DIRS.S) { ctx.moveTo(0, 0); ctx.lineTo(0, size * 0.4); }
+        if (this.type & DIRS.W) { ctx.moveTo(0, 0); ctx.lineTo(-size * 0.4, 0); }
+        
+        ctx.stroke();
+
+        // Decorative "Joint" in the center
+        if (this.type !== PIPE_TYPES.EMPTY) {
+            ctx.fillStyle = this.isLit ? '#fff' : '#2a1a10';
+            ctx.beginPath();
+            ctx.arc(0, 0, size * 0.08, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
+/**
+ * CLASS: GAME
+ * Handles Logic, Input, and Rendering
+ */
+class NeuralCircuit {
+    constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.overlay = document.getElementById('overlay');
+        this.restartBtn = document.getElementById('restartBtn');
+        
+        this.grid = [];
+        this.startPoint = null; // {r, c, side}
+        this.endPoint = null;
+        this.path = []; // List of coords in the solution path
+        this.isGameOver = false;
+
+        this.tileSize = CONFIG.tileSize;
+        
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        
+        // Inputs
+        this.canvas.addEventListener('click', (e) => this.handleClick(e));
+        this.restartBtn.addEventListener('click', () => this.initLevel());
+
+        this.initLevel();
+        this.loop();
+    }
+
+    resize() {
+        // Calculate max tiles that fit screen with margin
+        // Use Math.max to prevent negative dimensions on very small screens/iframes
+        const maxWidth = Math.max(100, window.innerWidth - 40);
+        const maxHeight = Math.max(100, window.innerHeight - 100);
+        
+        // Determine pixel size per tile based on Aspect Ratio
+        const sizeW = Math.floor(maxWidth / CONFIG.cols);
+        const sizeH = Math.floor(maxHeight / CONFIG.rows);
+        
+        // Cap at 100px, but ensure minimum of 10px to prevent negative radius errors in canvas
+        this.tileSize = Math.max(10, Math.min(sizeW, sizeH, 100)); 
+        
+        this.canvas.width = this.tileSize * CONFIG.cols;
+        this.canvas.height = this.tileSize * CONFIG.rows;
+    }
+
+    /**
+     * LEVEL GENERATION ALGORITHM
+     */
+    initLevel() {
+        this.isGameOver = false;
+        this.overlay.classList.remove('visible');
+        this.grid = [];
+
+        // 1. Initialize Empty Grid
+        for(let r=0; r<CONFIG.rows; r++) {
+            let row = [];
+            for(let c=0; c<CONFIG.cols; c++) {
+                row.push(new Tile(c, r, PIPE_TYPES.EMPTY));
+            }
+            this.grid.push(row);
+        }
+
+        // 2. Pick Start and End Points on Perimeter
+        // Side: 0=Top, 1=Right, 2=Bottom, 3=Left
+        const startSide = randomInt(0, 3);
+        // Force end side to be somewhat opposite/distant
+        let endSide = (startSide + 2) % 4; 
+        
+        this.startPoint = this.generatePerimeterPoint(startSide);
+        this.endPoint = this.generatePerimeterPoint(endSide);
+
+        // 3. Generate a VALID path using Random Walk / Backtracking
+        const solutionPath = this.generatePath(this.startPoint, this.endPoint);
+
+        // 4. Convert Path to Pipe Types
+        this.applyPathToGrid(solutionPath);
+
+        // 5. Fill Empty spots with Decoys
+        this.fillDecoys();
+
+        // 6. Scramble Rotations
+        this.scramble();
+
+        // 7. Initial Flow Check
+        this.checkFlow();
+    }
+
+    generatePerimeterPoint(side) {
+        // Returns coordinate inside grid adjacent to the edge
+        let r, c, entryDir;
+        if (side === 0) { // Top
+            r = 0; c = randomInt(0, CONFIG.cols-1); entryDir = DIRS.N;
+        } else if (side === 1) { // Right
+            r = randomInt(0, CONFIG.rows-1); c = CONFIG.cols-1; entryDir = DIRS.E;
+        } else if (side === 2) { // Bottom
+            r = CONFIG.rows-1; c = randomInt(0, CONFIG.cols-1); entryDir = DIRS.S;
+        } else { // Left
+            r = randomInt(0, CONFIG.rows-1); c = 0; entryDir = DIRS.W;
+        }
+        return {r, c, entryDir, side};
+    }
+
+    generatePath(start, end) {
+        // Simple randomized DFS
+        let stack = [{r: start.r, c: start.c, parent: null}];
+        let visited = new Set();
+        
+        while(stack.length > 0) {
+            let current = stack.pop(); // Use pop for DFS (long snakey paths)
+            let key = `${current.r},${current.c}`;
+
+            if (current.r === end.r && current.c === end.c) {
+                // Reconstruct path
+                let path = [];
+                let currNode = current;
+                while(currNode) {
+                    path.unshift({r: currNode.r, c: currNode.c});
+                    currNode = currNode.parent;
+                }
+                return path;
+            }
+
+            visited.add(key);
+
+            // Get Neighbors
+            let neighbors = [
+                {r: current.r-1, c: current.c},
+                {r: current.r+1, c: current.c},
+                {r: current.r, c: current.c-1},
+                {r: current.r, c: current.c+1}
+            ];
+
+            // Shuffle neighbors to make it random
+            neighbors.sort(() => Math.random() - 0.5);
+
+            for (let n of neighbors) {
+                // Bounds check
+                if (n.r >= 0 && n.r < CONFIG.rows && n.c >= 0 && n.c < CONFIG.cols) {
+                    if (!visited.has(`${n.r},${n.c}`)) {
+                        // Check if we already added it to stack (prevent loops)
+                        // Simple check: just push, visited set handles loops on pop, 
+                        // but for strict path generation we need to be careful not to box ourselves in.
+                        // For a simple puzzle, standard randomized DFS works well enough.
+                        stack.push({r: n.r, c: n.c, parent: current});
+                    }
+                }
+            }
+        }
+        
+        // Fallback if fails (should be rare on small grid): Restart
+        console.log("Regenerating...");
+        return this.initLevel();
+    }
+
+    applyPathToGrid(path) {
+        if (!path) return;
+
+        for (let i = 0; i < path.length; i++) {
+            let curr = path[i];
+            let prev = (i === 0) ? null : path[i-1];
+            let next = (i === path.length-1) ? null : path[i+1];
+
+            // Determine Entrance Direction
+            let dirIn = 0;
+            if (!prev) {
+                // Connected to Start Point (Outside)
+                dirIn = this.startPoint.entryDir; 
+            } else {
+                if (prev.r < curr.r) dirIn = DIRS.N; // Came from North
+                if (prev.r > curr.r) dirIn = DIRS.S; // Came from South
+                if (prev.c < curr.c) dirIn = DIRS.W; // Came from West
+                if (prev.c > curr.c) dirIn = DIRS.E; // Came from East
+            }
+
+            // Determine Exit Direction
+            let dirOut = 0;
+            if (!next) {
+                // Connected to End Point (Outside)
+                // End Point structure has 'entryDir' which is the wall side.
+                // If endpoint is on RIGHT wall, we exit EAST.
+                dirOut = this.endPoint.entryDir;
+            } else {
+                if (next.r < curr.r) dirOut = DIRS.N;
+                if (next.r > curr.r) dirOut = DIRS.S;
+                if (next.c < curr.c) dirOut = DIRS.W;
+                if (next.c > curr.c) dirOut = DIRS.E;
+            }
+
+            // Combine dirs to find shape
+            const mask = dirIn | dirOut;
+            
+            // Map mask to Pipe Type
+            // Note: Since we only have specific shapes, we assign the base shape
+            // that matches this configuration at Rotation 0, OR any rotation.
+            // But to keep logic simple: we assign the Type, and set Rotation to 0.
+            // The scramble phase will handle hiding the solution.
+            
+            if (mask === (DIRS.N | DIRS.S)) this.grid[curr.r][curr.c].type = PIPE_TYPES.STRAIGHT;
+            else if (mask === (DIRS.E | DIRS.W)) {
+                 this.grid[curr.r][curr.c].type = PIPE_TYPES.STRAIGHT;
+                 this.grid[curr.r][curr.c].rotation = 1; // Pre-rotate to match H
+            }
+            else if (mask === (DIRS.N | DIRS.E)) this.grid[curr.r][curr.c].type = PIPE_TYPES.ELBOW;
+            else if (mask === (DIRS.E | DIRS.S)) { this.grid[curr.r][curr.c].type = PIPE_TYPES.ELBOW; this.grid[curr.r][curr.c].rotation = 1; }
+            else if (mask === (DIRS.S | DIRS.W)) { this.grid[curr.r][curr.c].type = PIPE_TYPES.ELBOW; this.grid[curr.r][curr.c].rotation = 2; }
+            else if (mask === (DIRS.W | DIRS.N)) { this.grid[curr.r][curr.c].type = PIPE_TYPES.ELBOW; this.grid[curr.r][curr.c].rotation = 3; }
+            else {
+                // Fallback for weird overlaps (shouldn't happen in simple path)
+                this.grid[curr.r][curr.c].type = PIPE_TYPES.CROSS; 
+            }
+        }
+    }
+
+    fillDecoys() {
+        const types = [PIPE_TYPES.STRAIGHT, PIPE_TYPES.ELBOW, PIPE_TYPES.TEE, PIPE_TYPES.CROSS];
+        for(let r=0; r<CONFIG.rows; r++) {
+            for(let c=0; c<CONFIG.cols; c++) {
+                if (this.grid[r][c].type === PIPE_TYPES.EMPTY) {
+                    this.grid[r][c].type = types[randomInt(0, 3)];
+                }
+            }
+        }
+    }
+
+    scramble() {
+        for(let r=0; r<CONFIG.rows; r++) {
+            for(let c=0; c<CONFIG.cols; c++) {
+                // Random rotation 0 to 3
+                let randRot = randomInt(0, 3);
+                this.grid[r][c].rotation = randRot;
+                this.grid[r][c].targetRotation = randRot;
+                this.grid[r][c].visualRotation = randRot * (Math.PI/2);
+            }
+        }
+    }
+
+    /**
+     * GAME LOGIC
+     */
+    handleClick(e) {
+        if (this.isGameOver) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        const c = Math.floor(x / this.tileSize);
+        const r = Math.floor(y / this.tileSize);
+
+        if (c >= 0 && c < CONFIG.cols && r >= 0 && r < CONFIG.rows) {
+            this.grid[r][c].rotate();
+            this.checkFlow();
+        }
+    }
+
+    checkFlow() {
+        // Reset all lit states
+        for(let r=0; r<CONFIG.rows; r++) {
+            for(let c=0; c<CONFIG.cols; c++) {
+                this.grid[r][c].isLit = false;
+            }
+        }
+
+        // Flood fill from Start
+        // Start Point defines where the power comes IN to the grid.
+        const startR = this.startPoint.r;
+        const startC = this.startPoint.c;
+        const entryDir = this.startPoint.entryDir;
+
+        // The start tile must connect towards the entry direction
+        // e.g., if entry is North (coming from Top), the Tile must have North connection.
+        const startTile = this.grid[startR][startC];
+        
+        // Check if start tile connects to the input
+        if (startTile.getConnections() & entryDir) {
+            this.propagateFlow(startR, startC, entryDir);
+        }
+    }
+
+    propagateFlow(r, c, fromDir) {
+        const tile = this.grid[r][c];
+        if (tile.isLit) return; // Already visited/lit in this pass
+
+        tile.isLit = true;
+
+        // Check Win Condition:
+        // Are we at the End Point?
+        if (r === this.endPoint.r && c === this.endPoint.c) {
+            // Does this tile connect to the exit?
+            if (tile.getConnections() & this.endPoint.entryDir) {
+                this.triggerWin();
+            }
+        }
+
+        // Check neighbors
+        const cons = tile.getConnections();
+
+        // If connects North and we didn't just come from North
+        if ((cons & DIRS.N) && fromDir !== DIRS.N) {
+            this.tryConnect(r-1, c, DIRS.S); // Neighbor must connect South
+        }
+        if ((cons & DIRS.E) && fromDir !== DIRS.E) {
+            this.tryConnect(r, c+1, DIRS.W); // Neighbor must connect West
+        }
+        if ((cons & DIRS.S) && fromDir !== DIRS.S) {
+            this.tryConnect(r+1, c, DIRS.N); // Neighbor must connect North
+        }
+        if ((cons & DIRS.W) && fromDir !== DIRS.W) {
+            this.tryConnect(r, c-1, DIRS.E); // Neighbor must connect East
+        }
+    }
+
+    tryConnect(r, c, requiredConnection) {
+        if (r < 0 || r >= CONFIG.rows || c < 0 || c >= CONFIG.cols) return;
+        
+        const neighbor = this.grid[r][c];
+        const neighborCons = neighbor.getConnections();
+
+        if (neighborCons & requiredConnection) {
+            // Match found! Continue flow from the direction we entered
+            // If we needed South connection, it means we entered from North (DIRS.N)
+            // Wait, helper logic: propagateFlow takes 'fromDir' as the side of the TILE we entered.
+            // If I am at (0,0) and move East to (0,1).
+            // (0,0) has East connection. (0,1) has West connection.
+            // I enter (0,1) from the West side (DIRS.W).
+            
+            let enteredFrom = 0;
+            if (requiredConnection === DIRS.S) enteredFrom = DIRS.N; // Entered from top
+            if (requiredConnection === DIRS.N) enteredFrom = DIRS.S; // Entered from bottom
+            if (requiredConnection === DIRS.W) enteredFrom = DIRS.E; // Entered from right
+            if (requiredConnection === DIRS.E) enteredFrom = DIRS.W; // Entered from left
+
+            this.propagateFlow(r, c, requiredConnection); 
+        }
+    }
+
+    triggerWin() {
+        if (this.isGameOver) return;
+        this.isGameOver = true;
+        setTimeout(() => {
+            this.overlay.classList.add('visible');
+        }, 500);
+    }
+
+    /**
+     * RENDER LOOP
+     */
+    loop() {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Update & Draw Grid
+        for(let r=0; r<CONFIG.rows; r++) {
+            for(let c=0; c<CONFIG.cols; c++) {
+                this.grid[r][c].update();
+                this.grid[r][c].draw(this.ctx, this.tileSize);
+            }
+        }
+
+        // Draw Input/Output Indicators
+        this.drawIO(this.startPoint, true);
+        this.drawIO(this.endPoint, false);
+
+        requestAnimationFrame(() => this.loop());
+    }
+
+    drawIO(point, isStart) {
+        if (!point) return;
+
+        const size = this.tileSize;
+        const cx = point.c * size + size/2;
+        const cy = point.r * size + size/2;
+
+        let offsetX = 0, offsetY = 0;
+        const offsetAmt = size * 0.6; // Draw just outside grid
+
+        if (point.entryDir === DIRS.N) offsetY = -offsetAmt; // Top edge
+        if (point.entryDir === DIRS.S) offsetY = offsetAmt;  // Bottom edge
+        if (point.entryDir === DIRS.W) offsetX = -offsetAmt; // Left edge
+        if (point.entryDir === DIRS.E) offsetX = offsetAmt;  // Right edge
+
+        this.ctx.save();
+        this.ctx.translate(cx + offsetX, cy + offsetY);
+
+        // Glow
+        this.ctx.shadowBlur = 20;
+        this.ctx.shadowColor = isStart ? '#fff' : CONFIG.pipeActive;
+        this.ctx.fillStyle = isStart ? '#fff' : CONFIG.pipeActive;
+        
+        // Draw Connector Line
+        this.ctx.beginPath();
+        this.ctx.moveTo(0,0);
+        // Draw line towards grid center
+        this.ctx.lineTo(-offsetX*0.6, -offsetY*0.6); 
+        this.ctx.strokeStyle = this.ctx.fillStyle;
+        this.ctx.lineWidth = size * 0.2;
+        this.ctx.stroke();
+
+        // Draw Circle Node
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, size * 0.25, 0, Math.PI*2);
+        this.ctx.fill();
+
+        // Text Label
+        this.ctx.fillStyle = '#000';
+        this.ctx.font = 'bold 12px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.shadowBlur = 0;
+        this.ctx.fillText(isStart ? "IN" : "OUT", 0, 0);
+
+        this.ctx.restore();
+    }
+}
+
+// Start Game
+window.onload = () => {
+    const game = new NeuralCircuit('gameCanvas');
+};
+
+</script>
+</body>
+</html>
