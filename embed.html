@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Circuit - Embedded</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            color: #e0e0e0;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #ff5722;
+        }
+
+        .header p {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .embed-wrapper {
+            position: relative;
+            width: 100%;
+            padding-bottom: 75%; /* Aspect ratio 4:3 */
+            height: 0;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+        }
+
+        .embed-wrapper iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 8px;
+        }
+
+        .info {
+            margin-top: 30px;
+            padding: 20px;
+            background: #0d0d12;
+            border-left: 4px solid #ff5722;
+            border-radius: 4px;
+            color: #e0e0e0;
+        }
+
+        .info h3 {
+            color: #ff5722;
+            margin-bottom: 10px;
+        }
+
+        .info ul {
+            list-style: none;
+            margin-left: 0;
+        }
+
+        .info li {
+            margin-bottom: 8px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .info li:before {
+            content: "▸";
+            position: absolute;
+            left: 0;
+            color: #ff5722;
+        }
+
+        .info a {
+            color: #ff5722;
+            text-decoration: none;
+            transition: opacity 0.3s;
+        }
+
+        .info a:hover {
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .embed-wrapper {
+                padding-bottom: 100%; /* Quadrado em mobile */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 Neural Circuit: Pipe Puzzle</h1>
+            <p>Jogo de puzzle com tubos - Conecte a entrada à saída!</p>
+        </div>
+
+        <div class="embed-wrapper">
+            <iframe src="teste.html" title="Neural Circuit Game"></iframe>
+        </div>
+
+        <div class="info">
+            <h3>📋 Como usar este embed</h3>
+            <ul>
+                <li>Cole este código em seu sistema para incorporar o jogo</li>
+                <li>Ajuste a altura e largura do iFrame conforme necessário</li>
+                <li>Certifique-se de que o arquivo <code>teste.html</code> esteja acessível</li>
+                <li>Para mais informações, visite o <a href="https://github.com/niloart/Jogo_Canos" target="_blank">repositório do projeto</a></li>
+            </ul>
+        </div>
+
+        <div class="info" style="margin-top: 20px; border-left-color: #4a9eff;">
+            <h3 style="color: #4a9eff;">💻 Código para embed</h3>
+            <pre style="background: #000; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px;">
+&lt;iframe 
+    src="https://niloart.github.io/Jogo_Canos/teste.html"
+    width="100%"
+    height="600"
+    frameborder="0"
+    allowfullscreen
+    style="border-radius: 8px;"&gt;
+&lt;/iframe&gt;</pre>
+        </div>
+    </div>
+</body>
+</html>
